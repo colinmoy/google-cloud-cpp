@@ -14,20 +14,19 @@ cryptographic libraries.
 No code changes are required to use PQC when building with supported dependency
 versions:
 
-| Transport | Default Behavior                                            | Minimum Dependency Requirements                        |
-| --------- | ----------------------------------------------------------- | ------------------------------------------------------ |
-| **gRPC**  | Enabled automatically by gRPC and its TLS stack.            | gRPC built with BoringSSL or OpenSSL >= 3.5.0          |
-| **REST**  | `X25519MLKEM768` is prioritized in `CURLOPT_SSL_EC_CURVES`. | `libcurl >= 7.73.0` with BoringSSL or OpenSSL >= 3.5.0 |
+| Transport | Default Behavior                                         | Minimum Dependency Requirements                        |
+| --------- | -------------------------------------------------------- | ------------------------------------------------------ |
+| **gRPC**  | Enabled automatically by gRPC and its TLS stack.         | gRPC built with BoringSSL or OpenSSL >= 3.5.0          |
+| **REST**  | Enabled automatically by BoringSSL and OpenSSL >= 3.5.0. | `libcurl >= 7.73.0` with BoringSSL or OpenSSL >= 3.5.0 |
 
 ### REST Transport Details
 
-When creating a REST connection, the library inspects the linked `libcurl` and
-SSL/TLS libraries at runtime. If `X25519MLKEM768` is available, it is prepended
-to the list of supported TLS groups passed to `libcurl`.
-
-If the runtime environment does not support `X25519MLKEM768` (for example, when
-linked against OpenSSL < 3.5.0 or `libcurl < 7.73.0`), the client logs an
-informational (`INFO`) message and falls back to the default classical curves.
+By default, the REST client uses the underlying TLS library's default key
+exchange group preference (OpenSSL >= 3.5.0 and recent BoringSSL versions
+already prioritize `X25519MLKEM768` by default). For BoringSSL builds that
+support `X25519MLKEM768`, the client sets `CURLOPT_SSL_EC_CURVES` to
+`X25519MLKEM768:X25519:P-256:P-384` so `X25519MLKEM768` is offered even on older
+BoringSSL releases that did not yet enable it by default.
 
 ## 2. Disabling Post-Quantum Cryptography
 
@@ -46,9 +45,10 @@ export GOOGLE_CLOUD_CPP_DISABLE_PQC="true"
 ./my_application
 ```
 
-When `GOOGLE_CLOUD_CPP_DISABLE_PQC` is set, the REST client does not prioritize
-`X25519MLKEM768` and leaves the underlying SSL library's default curve order
-unchanged.
+When `GOOGLE_CLOUD_CPP_DISABLE_PQC` is set, the REST client configures
+`CURLOPT_SSL_EC_CURVES` to classical curves only (`X25519:P-256:P-384`),
+disabling post-quantum key exchange groups (requires `libcurl >= 7.73.0` with a
+supported TLS backend such as OpenSSL or BoringSSL).
 
 ### Disabling PQC with gRPC
 

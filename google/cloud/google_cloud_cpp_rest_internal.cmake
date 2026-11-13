@@ -101,9 +101,10 @@ add_library(
     internal/oauth2_service_account_credentials.h
     internal/oauth2_universe_domain.cc
     internal/oauth2_universe_domain.h
+    internal/openssl/openssl_helpers.cc
+    internal/openssl/openssl_helpers.h
     internal/openssl/parse_service_account_p12_file.cc
     internal/openssl/sign_using_sha256.cc
-    internal/openssl/ssl_ec_curves.cc
     internal/parse_service_account_p12_file.h
     internal/populate_rest_options.cc
     internal/populate_rest_options.h
@@ -142,7 +143,6 @@ add_library(
     internal/unified_rest_credentials.h
     internal/win32/parse_service_account_p12_file.cc
     internal/win32/sign_using_sha256.cc
-    internal/win32/ssl_ec_curves.cc
     internal/win32/win32_helpers.cc
     internal/win32/win32_helpers.h
     rest_options.h)
@@ -297,6 +297,8 @@ if (BUILD_TESTING)
         internal/oauth2_regional_access_boundary_token_manager_test.cc
         internal/oauth2_service_account_credentials_test.cc
         internal/oauth2_universe_domain_test.cc
+        internal/openssl_helpers_test.cc
+        internal/parse_service_account_p12_file_test.cc
         internal/populate_rest_options_test.cc
         internal/rest_carrier_test.cc
         internal/rest_context_test.cc
@@ -308,6 +310,7 @@ if (BUILD_TESTING)
         internal/rest_response_test.cc
         internal/rest_retry_loop_test.cc
         internal/rest_set_metadata_test.cc
+        internal/sign_using_sha256_test.cc
         internal/ssl_ec_curves_test.cc
         internal/tracing_http_payload_test.cc
         internal/tracing_rest_client_test.cc

@@ -18,6 +18,8 @@
 #include "google/cloud/internal/make_status.h"
 #include "google/cloud/log.h"
 #ifdef GOOGLE_CLOUD_CPP_HAVE_OPENSSL
+#include "google/cloud/internal/openssl/openssl_helpers.h"
+#include "absl/strings/str_cat.h"
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #endif
@@ -30,63 +32,30 @@ namespace rest_internal {
 GOOGLE_CLOUD_CPP_INLINE_NAMESPACE_BEGIN
 namespace {
 
-#ifdef GOOGLE_CLOUD_CPP_HAVE_OPENSSL
-struct BIOPtrCleanup {
-  int operator()(BIO* b) const { return BIO_free(b); }
-};
-
-using BioPtr = std::unique_ptr<BIO, BIOPtrCleanup>;
-
-struct X509InfoPtrCleanup {
-  void operator()(STACK_OF(X509_INFO) * i) const {
-    return sk_X509_INFO_pop_free(i, X509_INFO_free);
-  }
-};
-
-using X509InfoPtr = std::unique_ptr<STACK_OF(X509_INFO), X509InfoPtrCleanup>;
-#else
+#ifndef GOOGLE_CLOUD_CPP_HAVE_OPENSSL
 using SSL_CTX = void;
 #endif
 
 Status SetCurlCAInMemory(CurlHandleFactory const& factory, SSL_CTX* ssl_ctx) {
 #ifndef GOOGLE_CLOUD_CPP_HAVE_OPENSSL
+  static_cast<void>(factory);
+  static_cast<void>(ssl_ctx);
   return internal::InternalError(
       "SSL callback function currently not supported in windows",
       GCP_ERROR_INFO());
 #else
+  ERR_clear_error();
+  if (!ssl_ctx) {
+    return internal::InternalError("SSL_CTX is null", GCP_ERROR_INFO());
+  }
   X509_STORE* cert_store = SSL_CTX_get_cert_store(ssl_ctx);
   if (!cert_store) {
-    return internal::InternalError("SSL_CTX_get_cert_store returned NULL",
-                                   GCP_ERROR_INFO());
+    return internal::InternalError(
+        absl::StrCat("SSL_CTX_get_cert_store returned NULL: ",
+                     internal::CaptureSslErrors()),
+        GCP_ERROR_INFO());
   }
-
-  // Add each of the provided certs to the store.
-  for (auto const& cert : factory.ca_certs()) {
-    BioPtr buf{BIO_new_mem_buf(cert.data(), static_cast<int>(cert.length()))};
-    if (!buf) {
-      return internal::InternalError("BIO_new_mem_buf returned NULL",
-                                     GCP_ERROR_INFO());
-    }
-    X509InfoPtr info{
-        PEM_X509_INFO_read_bio(buf.get(), nullptr, nullptr, nullptr)};
-    if (!info) {
-      return internal::InternalError("PEM_X509_INFO_read_bio returned NULL",
-                                     GCP_ERROR_INFO());
-    }
-
-    for (decltype(sk_X509_INFO_num(info.get())) i = 0;
-         i < sk_X509_INFO_num(info.get()); ++i) {
-      X509_INFO* value = sk_X509_INFO_value(info.get(), i);
-      if (value->x509) {
-        X509_STORE_add_cert(cert_store, value->x509);
-      }
-      if (value->crl) {
-        X509_STORE_add_crl(cert_store, value->crl);
-      }
-    }
-  }
-
-  return {};
+  return internal::AddPemCertsToStore(factory.ca_certs(), cert_store);
 #endif
 }
 

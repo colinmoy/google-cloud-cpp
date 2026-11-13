@@ -14,22 +14,19 @@
 
 #ifndef _WIN32
 #include "google/cloud/internal/sign_using_sha256.h"
-#include "google/cloud/internal/base64_transforms.h"
 #include "google/cloud/internal/make_status.h"
+#include "google/cloud/internal/openssl/openssl_helpers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include <openssl/bio.h>
 #include <openssl/bn.h>
-#include <openssl/buffer.h>
 #include <openssl/ecdsa.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
-#include <openssl/md5.h>
 #include <openssl/opensslv.h>
 #include <openssl/pem.h>
-#include <array>
+#include <limits>
 #include <memory>
-#include <type_traits>
 
 namespace google {
 namespace cloud {
@@ -61,24 +58,6 @@ std::unique_ptr<EVP_MD_CTX, OpenSslDeleter> GetDigestCtx() {
 #endif
 }
 
-std::string CaptureSslErrors() {
-  std::string msg;
-  char const* sep = "";
-  while (auto code = ERR_get_error()) {
-    // OpenSSL guarantees that 256 bytes is enough:
-    //   https://www.openssl.org/docs/man1.1.1/man3/ERR_error_string_n.html
-    //   https://www.openssl.org/docs/man1.0.2/man3/ERR_error_string_n.html
-    // we could not find a macro or constant to replace the 256 literal.
-    auto constexpr kMaxOpenSslErrorLength = 256;
-    std::array<char, kMaxOpenSslErrorLength> buf{};
-    ERR_error_string_n(code, buf.data(), buf.size());
-    msg += sep;
-    msg += buf.data();
-    sep = ", ";
-  }
-  return msg;
-}
-
 Status DERToRawSignature(unsigned char const* der_sig, size_t der_len,
                          int coord_size, std::vector<uint8_t>& raw_sig) {
   if (!der_sig || der_len == 0) {
@@ -87,18 +66,16 @@ Status DERToRawSignature(unsigned char const* der_sig, size_t der_len,
   }
 
   auto ecdsa_sig = std::unique_ptr<ECDSA_SIG, OpenSslDeleter>(
-      d2i_ECDSA_SIG(nullptr, &der_sig, der_len));
+      d2i_ECDSA_SIG(nullptr, &der_sig, static_cast<long>(der_len)));
 
   if (!ecdsa_sig) {
-    char err_buf[256];
-    ERR_error_string_n(ERR_get_error(), err_buf, sizeof(err_buf));
     return InvalidArgumentError(
-        absl::StrCat("Error parsing DER signature: ", err_buf),
+        absl::StrCat("Error parsing DER signature: ", CaptureSslErrors()),
         GCP_ERROR_INFO());
   }
 
-  const BIGNUM* r;
-  const BIGNUM* s;
+  BIGNUM const* r = nullptr;
+  BIGNUM const* s = nullptr;
   ECDSA_SIG_get0(ecdsa_sig.get(), &r, &s);
 
   if (!r || !s) {
@@ -114,20 +91,16 @@ Status DERToRawSignature(unsigned char const* der_sig, size_t der_len,
   // Convert r to binary, padded to coord_size.
   int r_len = BN_bn2binpad(r, &raw_sig_ptr[0], coord_size);
   if (r_len != coord_size) {
-    char err_buf[256];
-    ERR_error_string_n(ERR_get_error(), err_buf, sizeof(err_buf));
-    auto err_msg =
-        absl::StrFormat(kErrorMessage, "r", coord_size, r_len, err_buf);
+    auto err_msg = absl::StrFormat(kErrorMessage, "r", coord_size, r_len,
+                                   CaptureSslErrors());
     return InvalidArgumentError(err_msg, GCP_ERROR_INFO());
   }
 
   // Convert s to binary, padded to coord_size.
   int s_len = BN_bn2binpad(s, &raw_sig_ptr[coord_size], coord_size);
   if (s_len != coord_size) {
-    char err_buf[256];
-    ERR_error_string_n(ERR_get_error(), err_buf, sizeof(err_buf));
-    auto err_msg =
-        absl::StrFormat(kErrorMessage, "s", coord_size, s_len, err_buf);
+    auto err_msg = absl::StrFormat(kErrorMessage, "s", coord_size, s_len,
+                                   CaptureSslErrors());
     return InvalidArgumentError(err_msg, GCP_ERROR_INFO());
   }
 
@@ -140,6 +113,12 @@ StatusOr<std::vector<std::uint8_t>> SignUsingSha256(
     std::string const& str, std::string const& pem_contents,
     SignatureFormat format) {
   ERR_clear_error();
+  if (pem_contents.size() >
+      static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+    return internal::InvalidArgumentError(
+        "Invalid ServiceAccountCredentials - PEM buffer is too large",
+        GCP_ERROR_INFO());
+  }
   auto pem_buffer = std::unique_ptr<BIO, OpenSslDeleter>(BIO_new_mem_buf(
       pem_contents.data(), static_cast<int>(pem_contents.length())));
   if (!pem_buffer) {
@@ -154,11 +133,9 @@ StatusOr<std::vector<std::uint8_t>> SignUsingSha256(
       std::unique_ptr<EVP_PKEY, OpenSslDeleter>(PEM_read_bio_PrivateKey(
           pem_buffer.get(),
           nullptr,  // EVP_PKEY **x
-          nullptr,  // pem_password_cb *cb -- a custom callback.
-          // void *u -- this represents the password for the PEM (only
-          // applicable for formats such as PKCS12 (.p12 files) that use
-          // a password, which we don't currently support.
-          nullptr));
+          // Always fail instead of prompting on the terminal if the PEM is
+          // encrypted, as password-protected PEM keys are not supported.
+          AlwaysFailPasswordCallback(), nullptr));
   if (!private_key) {
     return internal::InvalidArgumentError(
         "Invalid ServiceAccountCredentials - "

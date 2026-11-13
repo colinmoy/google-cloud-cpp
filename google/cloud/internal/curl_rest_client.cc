@@ -122,9 +122,8 @@ CurlRestClient::CurlRestClient(std::string endpoint_address,
   if (pqc_curves.ok()) {
     pqc_ec_curves_ = *std::move(pqc_curves);
   } else {
-    GCP_LOG(INFO)
-        << "Post-quantum cryptography (PQC) algorithms not available: "
-        << pqc_curves.status().message();
+    GCP_LOG(WARNING) << "Unable to configure TLS key exchange groups: "
+                     << pqc_curves.status().message();
   }
 }
 

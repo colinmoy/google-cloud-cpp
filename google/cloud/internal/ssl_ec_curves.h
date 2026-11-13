@@ -18,17 +18,16 @@
 #include "google/cloud/status_or.h"
 #include "google/cloud/version.h"
 #include <string>
-#include <vector>
 
 namespace google {
 namespace cloud {
 namespace rest_internal {
 GOOGLE_CLOUD_CPP_INLINE_NAMESPACE_BEGIN
 
-std::vector<std::string> AvailableCryptoGroups();
-
-StatusOr<std::string> PrependPqcEcCurve(std::vector<std::string> groups,
-                                        bool supports_ssl_ec_curves);
+// Exposed for unit testing.
+StatusOr<std::string> ResolvePqcEcCurves(bool disable_pqc,
+                                         bool supports_ssl_ec_curves,
+                                         bool enable_pqc_explicitly);
 
 StatusOr<std::string> GetPqcEcCurves();
 

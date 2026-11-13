@@ -274,7 +274,7 @@ StatusOr<ServiceAccountCredentialsInfo> ParseServiceAccountP12File(
     return InvalidArgumentError(
         absl::StrCat(
             "Invalid PKCS#12 file (", source,
-            "): service account id missing or not not formatted correctly"),
+            "): service account id missing or not formatted correctly"),
         GCP_ERROR_INFO());
   }
 
